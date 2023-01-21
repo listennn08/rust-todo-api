@@ -1,97 +1,67 @@
-use either::*;
-use std::fs::read_to_string;
 use chrono::Utc;
-use rocket::{serde::json::{json, Json, Value}, http::Status};
-use serde::{Deserialize, Serialize};
+use diesel::{RunQueryDsl, QueryDsl, expression_methods::ExpressionMethods};
+use rocket::{serde::json::{Json, Value}, http::Status};
 use serde_json::{from_str, to_string};
 
-#[derive(Deserialize, Serialize)]
-struct Database {
-    todos: Vec<Todo>
-}
-
-#[derive(Serialize, Deserialize)]
-pub struct Todo {
-    pub title: String,
-    pub done: bool,
-    pub created: i64,
-}
-
-#[derive(Serialize, Deserialize)]
-pub struct UpdateTodo {
-    pub title: Option<String>,
-    pub done: Option<bool>,
-}
-
-impl Todo {
-    pub fn new(title: String) -> Todo {
-        Todo {
-            title,
-            done: false,
-            created: Utc::now().timestamp()
-        }
-    }
-}
-
-#[derive(Deserialize)]
-pub struct NewTodo {
-    title: String
-}
+use crate::{db::establish_connection, models::todo::{Todo, NewTodo, UpdateTodo}};
 
 #[get("/")]
 pub fn get_all_todos() -> Value {
-    let text = read_to_string("database.json").unwrap();
+    use crate::schema::todos::dsl::*;
 
-    from_str::<Value>(&text).unwrap()
+    let conn = &mut establish_connection();
+    let results = todos
+        .get_results::<Todo>(conn)
+        .expect("Error loading todos");
+
+    from_str::<Value>(to_string(&results).unwrap().as_str()).unwrap()
 }
 
-#[get("/<id>")]
-pub fn get_todo(id: usize) -> Either<Value, Status> {
-    let text = read_to_string("database.json").unwrap();
-    let todos = from_str::<Database>(&text).unwrap().todos;
-    if id >= todos.len() {
-       return Right(Status::NotFound);
-    }
+#[get("/<todo_id>")]
+pub fn get_todo(todo_id: i32) -> Value {
+    use crate::schema::todos::dsl::*;
 
-    Left(json!(todos[id]))
+    let conn = &mut establish_connection();
+    let results = todos
+        .filter(id.eq(todo_id))
+        .get_result::<Todo>(conn)
+        .expect("Can not get todo item");
+
+    from_str(to_string(&results).unwrap().as_str()).unwrap()
 }
 
 #[post("/", format="json", data="<todo>")]
 pub fn add_todo(todo: Json<NewTodo>) -> Status {
-    let text = read_to_string("database.json").unwrap();
-    let database = from_str::<Database>(&text).unwrap();
-    let mut todos = database.todos;
-    let title = todo.into_inner().title;
-    todos.push(Todo::new(title));
+    use crate::schema::todos;
+    use crate::models::todo::NewTodo;
 
-    let path = "database.json";
-    let json_text = to_string::<Database>(&Database { todos }).unwrap();
-    std::fs::write(path, &*json_text).unwrap();
+    let conn = &mut establish_connection();
+    let title = todo.into_inner().title;
+    let new_todo = NewTodo { title };
+    
+    diesel::insert_into(todos::table)
+            .values(&new_todo)
+            .execute(conn)
+            .expect("Error saving new todo");
 
     Status::Created
 }
 
-#[put("/<id>", format="json", data="<todo>")]
-pub fn update_todo(id: usize, todo: Json<UpdateTodo>) -> Status {
-    let text = read_to_string("database.json").unwrap();
-    let database = from_str::<Database>(&text).unwrap();
-    let mut todos = database.todos;
-    if id >= todos.len() {
-        return Status::NotFound;
-    }
+#[put("/<todo_id>", format="json", data="<todo>")]
+pub fn update_todo(todo_id: i32, todo: Json<UpdateTodo>) -> Status {
+    use crate::schema::todos::dsl::*;
 
-    let update_todo = todo.into_inner();
-    if update_todo.title.is_some() {
-        todos[id].title = update_todo.title.unwrap();
-    }
+    let conn = &mut establish_connection();
 
-    if update_todo.done.is_some() {
-        todos[id].done  = update_todo.done.unwrap();
-    }
-
-    let path = "database.json";
-    let json_text = to_string::<Database>(&Database { todos }).unwrap();
-    std::fs::write(path, &*json_text).unwrap();
+    diesel::update(todos)
+        .filter(id.eq(todo_id))
+        .set((
+            title.eq(todo.title),
+            done.eq(todo.done),
+            updated_at.eq(Utc::now().format("%Y-%m-%d %H:%M:%S").to_string()),
+        ))
+        .execute(conn)
+        .expect("Update todo error");
 
     Status::Ok
 }

@@ -1,6 +1,9 @@
 #[macro_use] extern crate rocket;
 
 mod routes;
+pub mod models;
+pub mod schema;
+pub mod db;
 
 #[get("/")]
 fn index() -> &'static str {
