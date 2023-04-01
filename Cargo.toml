@@ -11,5 +11,10 @@ serde = { version = "1.0.130", features = ["derive"] }
 serde_json = "1.0.68"
 chrono = "0.4.23"
 either = "1.8.0"
-diesel = { version = "2.0.0", features = ["sqlite"] }
+diesel = { version = "2.0.2", features = ["sqlite"] }
 dotenvy = "0.15"
+# rocket_okapi = "0.5.1"
+schemars = "0.7"
+# okapi = { version = "0.4.0", features = ["derive_json_schema"] }
+bcrypt = "0.14"
+jsonwebtoken = "8.3.0"

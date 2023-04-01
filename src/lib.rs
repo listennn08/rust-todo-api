@@ -4,20 +4,18 @@ mod routes;
 pub mod models;
 pub mod schema;
 pub mod db;
+pub mod utils;
+pub mod middleware;
 
-#[get("/")]
-fn index() -> &'static str {
-    "Hello World"
+#[get("/ping")]
+fn health_check() -> &'static str {
+    "pong"
 }
 
 #[launch]
 pub fn rocket() -> _ {
     rocket::build()
-        .mount("/api", routes![index])
-        .mount("/api/todo", routes![
-            routes::todo::get_all_todos,
-            routes::todo::get_todo,
-            routes::todo::add_todo,
-            routes::todo::update_todo,
-        ])
+        .mount("/", routes![health_check])
+        .attach(routes::todo::stage())
+        .attach(routes::auth::stage())
 }

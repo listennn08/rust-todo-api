@@ -1,54 +1,70 @@
 use chrono::Utc;
-use diesel::{RunQueryDsl, QueryDsl, expression_methods::ExpressionMethods};
-use rocket::{serde::json::{Json, Value}, http::Status};
-use serde_json::{from_str, to_string};
+use diesel::{QueryDsl, RunQueryDsl};
+use diesel::expression_methods::ExpressionMethods;
+use rocket::{serde::json::{Json, Value, to_value}, http::Status, fairing::AdHoc};
+use serde::Deserialize;
 
-use crate::{db::establish_connection, models::todo::{Todo, NewTodo, UpdateTodo}};
+use crate::db::establish_connection;
+use crate::models::todo::{Todo, NewTodo, UpdateTodo};
+use crate::middleware::auth::AuthMiddleware;
 
-#[get("/")]
-pub fn get_all_todos() -> Value {
+#[get("/", format = "json")]
+async fn get_all_todos(auth: &AuthMiddleware) -> Value {
     use crate::schema::todos::dsl::*;
 
-    let conn = &mut establish_connection();
-    let results = todos
-        .get_results::<Todo>(conn)
-        .expect("Error loading todos");
+    // get user info from middleware
+    let user_info = auth.0.clone();
 
-    from_str::<Value>(to_string(&results).unwrap().as_str()).unwrap()
+    let conn = &mut establish_connection();
+    let mut query = todos.into_boxed();
+
+    if user_info.role != "admin" {
+        query = query.filter(id.eq(user_info.id));
+    }
+
+    let results = query.load::<Todo>(conn).expect("Error: loading todos failure");
+
+    to_value(&results).unwrap()
 }
 
-#[get("/<todo_id>")]
-pub fn get_todo(todo_id: i32) -> Value {
+#[get("/<todo_id>", format = "json")]
+fn get_todo(_auth: &AuthMiddleware, todo_id: i32) -> Value {
     use crate::schema::todos::dsl::*;
 
     let conn = &mut establish_connection();
     let results = todos
         .filter(id.eq(todo_id))
         .get_result::<Todo>(conn)
-        .expect("Can not get todo item");
+        .expect("Error: loading todo item failure");
 
-    from_str(to_string(&results).unwrap().as_str()).unwrap()
+    to_value(&results).unwrap()
+}
+
+#[derive(Deserialize)]
+struct TodoPayload {
+    title: String
 }
 
 #[post("/", format="json", data="<todo>")]
-pub fn add_todo(todo: Json<NewTodo>) -> Status {
+fn add_todo(auth: &AuthMiddleware, todo: Json<TodoPayload>) -> Status {
     use crate::schema::todos;
-    use crate::models::todo::NewTodo;
 
     let conn = &mut establish_connection();
-    let title = todo.into_inner().title;
-    let new_todo = NewTodo { title };
-    
+    let new_todo = NewTodo {
+        title: &todo.0.title,
+        created_by: auth.0.id,
+    };
+
     diesel::insert_into(todos::table)
             .values(&new_todo)
             .execute(conn)
-            .expect("Error saving new todo");
+            .expect("Error: saving new todo failure");
 
     Status::Created
 }
 
 #[put("/<todo_id>", format="json", data="<todo>")]
-pub fn update_todo(todo_id: i32, todo: Json<UpdateTodo>) -> Status {
+fn update_todo(todo_id: i32, todo: Json<UpdateTodo>) -> Status {
     use crate::schema::todos::dsl::*;
 
     let conn = &mut establish_connection();
@@ -65,3 +81,45 @@ pub fn update_todo(todo_id: i32, todo: Json<UpdateTodo>) -> Status {
 
     Status::Ok
 }
+
+#[delete("/<todo_id>")]
+fn delete_todo(auth: &AuthMiddleware, todo_id: i32) -> Status {
+    use crate::schema::todos::dsl::*;
+
+    let user_info = auth.0.clone();
+
+    let mut query = todos.into_boxed().filter(id.eq(todo_id));
+
+    if user_info.role != "admin" {
+        query = query.filter(created_by.eq(user_info.id))
+    }
+
+    let conn = &mut establish_connection();
+    let result = query.first::<Todo>(conn);
+
+    return match result {
+        Ok(_) => {
+            diesel::delete(todos)
+                .filter(id.eq(todo_id))
+                .execute(conn)
+                .expect("Error: execute delete todo item failure");
+            return Status::Ok;
+        },
+        Err(diesel::result::Error::NotFound) => Status::NotFound,
+        Err(_) => Status::InternalServerError,
+    }
+}
+
+// create a group route and mount to server with middleware
+pub fn stage() -> AdHoc {
+    AdHoc::on_ignite("Todo", |rocket| async {
+        rocket
+            .mount("/api/todo", routes![
+                get_all_todos,
+                get_todo,
+                add_todo,
+                update_todo,
+                delete_todo,
+            ])
+    })
+} 
