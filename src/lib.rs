@@ -15,7 +15,7 @@ pub mod db;
 pub mod utils;
 pub mod middleware;
 
-#[openapi]
+#[openapi(tag = "General")]
 #[get("/ping")]
 fn health_check() -> &'static str {
     "pong"
@@ -24,9 +24,6 @@ fn health_check() -> &'static str {
 #[launch]
 pub fn rocket() -> _ {
     let mut server = rocket::build()
-        .attach(routes::todo::stage())
-        .attach(routes::auth::stage())
-        .mount("/", routes![health_check])
         .mount("/api/doc", make_swagger_ui(&SwaggerUIConfig {
             url: "../openapi.json".to_owned(),
             ..Default::default()
@@ -37,9 +34,9 @@ pub fn rocket() -> _ {
         server,
         "/api".to_owned(),
         openapi_settings,
-        "/general" => openapi_get_routes_spec![health_check],
-        "/auth" => routes::auth::get_routes_and_spec(),
-        "/token" => routes::todo::get_routes_and_spec(),
+        "" => openapi_get_routes_spec![health_check],
+        "" => routes::auth::get_routes_and_spec(),
+        "/todo" => routes::todo::get_routes_and_spec(),
     };
 
     server

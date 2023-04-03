@@ -8,16 +8,14 @@ use diesel::{
     dsl::count,
 };
 use rocket::{
-    fairing::AdHoc,
     http::Status,
     response::status::Custom,
     serde::{Deserialize, json::Json},
 };
 use rocket_okapi::{
-    okapi::openapi3::OpenApi,
     openapi,
-    openapi_get_routes_spec,
-    JsonSchema,
+    okapi::openapi3::OpenApi,
+    JsonSchema, openapi_get_routes_spec,
 };
 
 use crate::{db::establish_connection, utils::token::Token};
@@ -26,14 +24,14 @@ use crate::models::user::NewUser;
 
 #[derive(Deserialize, JsonSchema)]
 #[serde(crate = "rocket::serde", rename_all = "camelCase")]
-pub struct LoginForm<'r> {
-    pub user_name: &'r str,
-    pub password:  &'r str,
+pub struct LoginForm {
+    pub user_name: String,
+    pub password:  String,
 }
 
 #[openapi(tag = "Auth")]
 #[post("/login", data = "<login_form>")]
-pub fn login(login_form: Json<LoginForm<'_>>) -> Either<Json<Token>, Status> {
+pub fn login(login_form: Json<LoginForm>) -> Either<Json<Token>, Status> {
     use crate::schema::users::dsl::*;
     use crate::utils::token::Token;
 
@@ -98,16 +96,6 @@ pub fn register(user: Json<NewUser<'_>>) -> Either<Status, Custom<Json<ErrorResp
     return Either::Left(Status::Created)
 }
 
-pub fn get_routes_and_spec() -> (Vec<rocket::Route>, OpenApi) {
+pub fn get_routes_and_spec() -> (Vec<rocket::Route>, OpenApi)  {
     openapi_get_routes_spec![login, register]
-}
-
-pub fn stage() -> AdHoc {
-    AdHoc::on_ignite("Auth", |rocket| async {
-        rocket
-            .mount("/api", routes![
-                login,
-                register,
-            ])
-    })
 }

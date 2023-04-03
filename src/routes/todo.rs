@@ -2,7 +2,6 @@ use either::Either;
 use rocket::{
     serde::json::Json,
     http::Status,
-    fairing::AdHoc,
 };
 use rocket_okapi::okapi::openapi3::OpenApi;
 use rocket_okapi::{openapi, JsonSchema, openapi_get_routes_spec};
@@ -92,13 +91,19 @@ fn add_todo(auth: AuthMiddleware, todo: Json<TodoPayload>) -> Status {
 
 #[openapi(tag = "Todo")]
 #[put("/<todo_id>", format="json", data="<todo>")]
-fn update_todo(todo_id: i32, todo: Json<UpdateTodo>) -> Status {
+fn update_todo(auth: AuthMiddleware,todo_id: i32, todo: Json<UpdateTodo>) -> Status {
     use crate::schema::todos::dsl::*;
 
-    let conn = &mut establish_connection();
+    let user_info = auth.0.clone();
 
-    diesel::update(todos)
-        .filter(id.eq(todo_id))
+    let conn = &mut establish_connection();
+    let mut query = diesel::update(todos).into_boxed();
+
+    if user_info.role != "admin" {
+       query = query.filter(created_by.eq(user_info.id));
+    }
+
+    query.filter(id.eq(todo_id))
         .set((
             title.eq(todo.title),
             done.eq(todo.done),
@@ -149,16 +154,3 @@ pub fn get_routes_and_spec() -> (Vec<rocket::Route>, OpenApi) {
     ]
 }
 
-// create a group route and mount to server with middleware
-pub fn stage() -> AdHoc {
-    AdHoc::on_ignite("Todo", |rocket| async {
-        rocket
-            .mount("/api/todo", routes![
-                get_all_todos,
-                get_todo,
-                add_todo,
-                update_todo,
-                delete_todo,
-            ])
-    })
-} 
