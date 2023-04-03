@@ -1,9 +1,10 @@
 use diesel::prelude::*;
+use rocket_okapi::JsonSchema;
 use serde::{Serialize, Deserialize};
 
 use crate::schema::todos;
 
-#[derive(Queryable, Serialize)]
+#[derive(Queryable, Serialize, JsonSchema)]
 #[serde(rename_all = "camelCase")]
 #[diesel(table_name = todos)]
 pub struct Todo {
@@ -15,14 +16,16 @@ pub struct Todo {
     pub updated_at: String,
 }
 
-#[derive(Insertable, Deserialize)]
+#[derive(Insertable, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
 #[diesel(table_name = todos)]
 pub struct NewTodo<'a> {
     pub title:      &'a str,
     pub created_by: i32,
 }
 
-#[derive(Insertable, Serialize, Deserialize)]
+#[derive(Insertable, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
 #[diesel(table_name = todos)]
 pub struct UpdateTodo<'a> {
     pub title: &'a str,

@@ -11,25 +11,29 @@ use rocket::{
     fairing::AdHoc,
     http::Status,
     response::status::Custom,
-    serde::{
-        Deserialize,
-        json::{Json, Value, to_value, json},
-    },
+    serde::{Deserialize, json::Json},
+};
+use rocket_okapi::{
+    okapi::openapi3::OpenApi,
+    openapi,
+    openapi_get_routes_spec,
+    JsonSchema,
 };
 
-use crate::db::establish_connection;
+use crate::{db::establish_connection, utils::token::Token};
 use crate::models::error::ErrorResponse;
 use crate::models::user::NewUser;
 
-#[derive(Deserialize)]
-#[serde(crate = "rocket::serde")]
+#[derive(Deserialize, JsonSchema)]
+#[serde(crate = "rocket::serde", rename_all = "camelCase")]
 pub struct LoginForm<'r> {
     pub user_name: &'r str,
     pub password:  &'r str,
 }
 
+#[openapi(tag = "Auth")]
 #[post("/login", data = "<login_form>")]
-pub fn login(login_form: Json<LoginForm<'_>>) -> Either<Value, Status> {
+pub fn login(login_form: Json<LoginForm<'_>>) -> Either<Json<Token>, Status> {
     use crate::schema::users::dsl::*;
     use crate::utils::token::Token;
 
@@ -48,15 +52,16 @@ pub fn login(login_form: Json<LoginForm<'_>>) -> Either<Value, Status> {
         let is_verify = verify(login_form.password, &user_password).unwrap();
         if is_verify {
             let token = Token::new(name);
-            return Either::Left(json!(token));
+            return Either::Left(Json(token));
         }
     }
 
     return Either::Right(Status::BadRequest);
 }
 
+#[openapi(tag = "Auth")]
 #[post("/register", data = "<user>")]
-pub fn register(user: Json<NewUser<'_>>) -> Either<Status, Custom<Value>> {
+pub fn register(user: Json<NewUser<'_>>) -> Either<Status, Custom<Json<ErrorResponse>>> {
     use crate::schema::users::dsl::*;
     use crate::schema::users;
 
@@ -73,7 +78,7 @@ pub fn register(user: Json<NewUser<'_>>) -> Either<Status, Custom<Value>> {
         let response = ErrorResponse::new("Username already exist");
         return Either::Right(Custom(
             Status::BadRequest,
-            to_value(&response).unwrap()
+            Json(response)
         ))
     }
 
@@ -91,6 +96,10 @@ pub fn register(user: Json<NewUser<'_>>) -> Either<Status, Custom<Value>> {
             .expect("Error: can't save new user");
 
     return Either::Left(Status::Created)
+}
+
+pub fn get_routes_and_spec() -> (Vec<rocket::Route>, OpenApi) {
+    openapi_get_routes_spec![login, register]
 }
 
 pub fn stage() -> AdHoc {

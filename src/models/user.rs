@@ -1,9 +1,10 @@
 use diesel::{prelude::*, Queryable};
+use rocket_okapi::JsonSchema;
 use serde::{Serialize, Deserialize};
 
 use crate::schema::users;
 
-#[derive(Debug, Queryable, Serialize, Clone)]
+#[derive(Debug, Queryable, Serialize, Clone, JsonSchema)]
 #[serde(rename_all = "camelCase")]
 #[diesel(table_name = users)]
 pub struct User {
@@ -18,7 +19,8 @@ pub struct User {
     pub updated_at:   String,
 }
 
-#[derive(Insertable, Serialize, Deserialize)]
+#[derive(Insertable, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
 #[diesel(table_name = users)]
 pub struct NewUser<'a> {
     pub user_name: &'a str,

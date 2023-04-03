@@ -1,15 +1,27 @@
-use chrono::Utc;
-use diesel::{QueryDsl, RunQueryDsl};
-use diesel::expression_methods::ExpressionMethods;
-use rocket::{serde::json::{Json, Value, to_value}, http::Status, fairing::AdHoc};
+use either::Either;
+use rocket::{
+    serde::json::Json,
+    http::Status,
+    fairing::AdHoc,
+};
+use rocket_okapi::okapi::openapi3::OpenApi;
+use rocket_okapi::{openapi, JsonSchema, openapi_get_routes_spec};
 use serde::Deserialize;
+use diesel::{
+    QueryDsl,
+    RunQueryDsl,
+    expression_methods::ExpressionMethods, result::Error::NotFound,
+};
+use chrono::Utc;
+use std::vec::Vec;
 
 use crate::db::establish_connection;
 use crate::models::todo::{Todo, NewTodo, UpdateTodo};
 use crate::middleware::auth::AuthMiddleware;
 
+#[openapi(tag = "Todo")]
 #[get("/", format = "json")]
-async fn get_all_todos(auth: &AuthMiddleware) -> Value {
+async fn get_all_todos(auth: AuthMiddleware) -> Json<Vec<Todo>> {
     use crate::schema::todos::dsl::*;
 
     // get user info from middleware
@@ -19,34 +31,49 @@ async fn get_all_todos(auth: &AuthMiddleware) -> Value {
     let mut query = todos.into_boxed();
 
     if user_info.role != "admin" {
-        query = query.filter(id.eq(user_info.id));
+        query = query.filter(created_by.eq(user_info.id));
     }
 
     let results = query.load::<Todo>(conn).expect("Error: loading todos failure");
-
-    to_value(&results).unwrap()
+    
+    Json(results)
+    // to_value(&results).unwrap()
 }
 
+#[openapi(tag = "Todo")]
 #[get("/<todo_id>", format = "json")]
-fn get_todo(_auth: &AuthMiddleware, todo_id: i32) -> Value {
+fn get_todo(auth: AuthMiddleware, todo_id: i32) -> Either<Json<Todo>, Status> {
     use crate::schema::todos::dsl::*;
 
-    let conn = &mut establish_connection();
-    let results = todos
-        .filter(id.eq(todo_id))
-        .get_result::<Todo>(conn)
-        .expect("Error: loading todo item failure");
+    let user_info = auth.0.clone();
 
-    to_value(&results).unwrap()
+    let conn = &mut establish_connection();
+    let mut query = todos.into_boxed().filter(id.eq(todo_id));
+
+    if user_info.role != "admin" {
+       query = query.filter(created_by.eq(user_info.id));
+    }
+
+    let result = query.first::<Todo>(conn);
+
+    match result {
+        Ok(result) => Either::Left(Json(result)),
+        Err(NotFound) => Either::Right(Status::NotFound),
+        Err(_) => {
+            println!("Error: loading todo item failure");
+            Either::Right(Status::ServiceUnavailable)
+        },
+    }
 }
 
-#[derive(Deserialize)]
+#[derive(Deserialize, JsonSchema)]
 struct TodoPayload {
     title: String
 }
 
+#[openapi(tag = "Todo")]
 #[post("/", format="json", data="<todo>")]
-fn add_todo(auth: &AuthMiddleware, todo: Json<TodoPayload>) -> Status {
+fn add_todo(auth: AuthMiddleware, todo: Json<TodoPayload>) -> Status {
     use crate::schema::todos;
 
     let conn = &mut establish_connection();
@@ -63,6 +90,7 @@ fn add_todo(auth: &AuthMiddleware, todo: Json<TodoPayload>) -> Status {
     Status::Created
 }
 
+#[openapi(tag = "Todo")]
 #[put("/<todo_id>", format="json", data="<todo>")]
 fn update_todo(todo_id: i32, todo: Json<UpdateTodo>) -> Status {
     use crate::schema::todos::dsl::*;
@@ -82,8 +110,9 @@ fn update_todo(todo_id: i32, todo: Json<UpdateTodo>) -> Status {
     Status::Ok
 }
 
+#[openapi(tag = "Todo")]
 #[delete("/<todo_id>")]
-fn delete_todo(auth: &AuthMiddleware, todo_id: i32) -> Status {
+fn delete_todo(auth: AuthMiddleware, todo_id: i32) -> Status {
     use crate::schema::todos::dsl::*;
 
     let user_info = auth.0.clone();
@@ -108,6 +137,16 @@ fn delete_todo(auth: &AuthMiddleware, todo_id: i32) -> Status {
         Err(diesel::result::Error::NotFound) => Status::NotFound,
         Err(_) => Status::InternalServerError,
     }
+}
+
+pub fn get_routes_and_spec() -> (Vec<rocket::Route>, OpenApi) {
+    openapi_get_routes_spec![
+        get_all_todos,
+        get_todo,
+        add_todo,
+        update_todo,
+        delete_todo,
+    ]
 }
 
 // create a group route and mount to server with middleware

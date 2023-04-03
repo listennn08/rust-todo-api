@@ -1,6 +1,7 @@
 use chrono::{Utc, Duration};
 use diesel::{query_dsl::methods::FilterDsl, ExpressionMethods, RunQueryDsl};
 use jsonwebtoken::{decode, encode, Algorithm, DecodingKey, EncodingKey, Header, Validation, errors::Error};
+use rocket_okapi::JsonSchema;
 use serde::{Serialize, Deserialize};
 
 use crate::db::establish_connection;
@@ -12,13 +13,12 @@ pub struct Claims {
     pub exp: i64,
 }
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize, JsonSchema)]
 pub struct Token {
     token: String,
 }
 
 const SECRET_KEY: &str = "SECRET_KEY";
-
 
 impl Token {
     pub fn new(user_name: String) -> Token {

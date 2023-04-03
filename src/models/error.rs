@@ -1,6 +1,7 @@
+use rocket_okapi::JsonSchema;
 use serde::Serialize;
 
-#[derive(Serialize)]
+#[derive(Serialize, JsonSchema)]
 pub struct ErrorResponse {
     message: String
 }
